@@ -9,6 +9,8 @@
 #pragma comment(lib, "fwpuclnt.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
+const GUID mysublayer = { 0xaa2b6cdd, 0x516f, 0x738b, { 0x1d, 0x5d, 0xe1, 0xf2, 0x34, 0x56, 0x78, 0x93 } }; // 示例子层 GUID
+
 bool isExePathMatch(const FWP_BYTE_BLOB* blob, const std::wstring& exePath) {
 	if (!blob || blob->size % sizeof(wchar_t) != 0) return false;
 	std::wstring blobStr((wchar_t*)blob->data, blob->size / sizeof(wchar_t));
@@ -23,9 +25,22 @@ bool ByteBlobEqual(const FWP_BYTE_BLOB* a, const FWP_BYTE_BLOB* b) {
 }
 
 // 把 wstring 转为 utf8 string，便于 cout
-std::string ws2s(const std::wstring& ws) {
+std::string ws2s_old(const std::wstring& ws) {
 	std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 	return conv.to_bytes(ws);
+}
+
+std::string ws2s(const std::wstring& input)
+{
+	// 获取当前系统的ANSI代码页
+	UINT codepage = GetACP();
+	// 计算目标字符串所需字节数
+	int bytes = WideCharToMultiByte(codepage, 0, input.c_str(), -1, nullptr, 0, nullptr, nullptr);
+	if (bytes <= 1) return std::string();
+	// 分配目标字符串空间
+	std::string result(bytes - 1, '\0'); // -1去除结尾\0
+	WideCharToMultiByte(codepage, 0, input.c_str(), -1, &result[0], bytes, nullptr, nullptr);
+	return result;
 }
 
 // 把 FWP_BYTE_BLOB 里的宽字符路径转为 string
@@ -35,10 +50,51 @@ std::string AppIdBlobToString(const FWP_BYTE_BLOB* blob) {
 	return ws2s(ws);
 }
 
-std::string ws2gbk(const std::wstring& ws) {
-	int len = WideCharToMultiByte(CP_ACP, 0, ws.c_str(), -1, NULL, 0, NULL, NULL);
-	std::string result(len, 0);
-	WideCharToMultiByte(CP_ACP, 0, ws.c_str(), -1, &result[0], len, NULL, NULL);
+// 检查WFP子层是否存在，不存在则创建，参数为子层GUID
+DWORD EnsureWfpSublayerExists(const GUID& subLayerKey)
+{
+	HANDLE engineHandle = nullptr;
+	DWORD result = FwpmEngineOpen0(
+		nullptr,            // 本地计算机
+		RPC_C_AUTHN_WINNT,  // 默认身份验证
+		nullptr,            // 默认身份验证
+		nullptr,            // 默认标志
+		&engineHandle
+	);
+	if (result != ERROR_SUCCESS) {
+		std::cerr << "FwpmEngineOpen0 failed: " << result << std::endl;
+		return result;
+	}
+
+	// 查询子层是否已存在
+	FWPM_SUBLAYER0* sublayer = nullptr;
+	result = FwpmSubLayerGetByKey0(engineHandle, &subLayerKey, &sublayer);
+	if (result == ERROR_SUCCESS) {
+		// 已存在
+		if (sublayer) FwpmFreeMemory0((void**)&sublayer);
+		FwpmEngineClose0(engineHandle);
+		return ERROR_SUCCESS;
+	}
+	else if (result != FWP_E_SUBLAYER_NOT_FOUND) {
+		// 其他错误
+		std::cerr << "FwpmSubLayerGetByKey0 failed: " << result << std::endl;
+		FwpmEngineClose0(engineHandle);
+		return result;
+	}
+
+	// 不存在则创建
+	FWPM_SUBLAYER0 newSublayer = { 0 };
+	newSublayer.subLayerKey = subLayerKey;
+	newSublayer.displayData.name = (wchar_t*)L"Jennings AppNetBlock Sublayer";
+	newSublayer.displayData.description = (wchar_t*)L"Block IPv4 Internet accessing for specific apps";
+	newSublayer.flags = FWPM_FILTER_FLAG_PERSISTENT;
+	newSublayer.weight = 0x8000;
+
+	result = FwpmSubLayerAdd0(engineHandle, &newSublayer, nullptr);
+	if (result != ERROR_SUCCESS) {
+		std::cerr << "FwpmSubLayerAdd0 failed: " << result << std::endl;
+	}
+	FwpmEngineClose0(engineHandle);
 	return result;
 }
 
@@ -50,19 +106,29 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 		return;
 	}
 
+	bool wildcard = false;
+	if (exePath == L"*") {
+		wildcard = true;
+	}
+
+
 	FWP_BYTE_BLOB* appId = nullptr;
-	result = FwpmGetAppIdFromFileName0(exePath.c_str(), &appId);
-	if (result != ERROR_SUCCESS) {
-		std::cout << "FwpmGetAppIdFromFileName0 failed: " << result << std::endl;
-		FwpmEngineClose0(engineHandle);
-		return;
+	if (!wildcard)
+	{
+		result = FwpmGetAppIdFromFileName0(exePath.c_str(), &appId);
+		if (result != ERROR_SUCCESS) {
+			std::cout << "FwpmGetAppIdFromFileName0 failed: " << result << std::endl;
+			FwpmEngineClose0(engineHandle);
+			return;
+		}
 	}
 
 	HANDLE enumHandle = nullptr;
 	result = FwpmFilterCreateEnumHandle0(engineHandle, nullptr, &enumHandle);
 	if (result != ERROR_SUCCESS) {
 		std::cout << "FwpmFilterCreateEnumHandle0 failed: " << result << std::endl;
-		FwpmFreeMemory0((void**)&appId);
+		if (!wildcard)
+			FwpmFreeMemory0((void**)&appId);
 		FwpmEngineClose0(engineHandle);
 		return;
 	}
@@ -72,12 +138,14 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 	while (FwpmFilterEnum0(engineHandle, enumHandle, 64, &filters, &numReturned) == ERROR_SUCCESS && numReturned > 0) {
 		for (UINT32 i = 0; i < numReturned; ++i) {
 			FWPM_FILTER0* filter = filters[i];
+			if (filter->subLayerKey != mysublayer) continue; // 只处理通用子层的规则
 			for (UINT32 j = 0; j < filter->numFilterConditions; ++j) {
 				const FWPM_FILTER_CONDITION0& cond = filter->filterCondition[j];
 				if (cond.fieldKey == FWPM_CONDITION_ALE_APP_ID && cond.conditionValue.byteBlob &&
-					cond.conditionValue.byteBlob->size == appId->size &&
-					memcmp(cond.conditionValue.byteBlob->data, appId->data, appId->size) == 0) {
-
+					(wildcard || 
+					(cond.conditionValue.byteBlob->size == appId->size &&
+					memcmp(cond.conditionValue.byteBlob->data, appId->data, appId->size) == 0))) {
+					
 					std::cout << "Rule #" << (++matchCount) << ":\n";
 					std::cout << "  FilterId: " << filter->filterId << "\n";
 					std::cout << "  Name: " << ws2s(filter->displayData.name ? filter->displayData.name : L"(none)") << "\n";
@@ -85,7 +153,7 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 						filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V6 ? L"AUTH_CONNECT_V6" :
 						L"other") << "\n";
 					std::cout << "  AppId: " << AppIdBlobToString(cond.conditionValue.byteBlob) << "\n";
-					std::cout << " Description: " << (ws2gbk(filter->displayData.description ? filter->displayData.description : L"(none)")) << "\n";
+					std::cout << " Description: " << (ws2s(filter->displayData.description ? filter->displayData.description : L"(none)")) << "\n";
 					std::cout << "--------------------------------------\n";
 					break;
 				}
@@ -101,7 +169,10 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 	FwpmEngineClose0(engineHandle);
 }
 
+
+
 int main(int argc, char* argv[]) {
+	//std::setlocale(LC_ALL, ".UTF-8");
 	if (argc < 3) {
 		std::cout << "用法: " << argv[0] << " list|add|del C:\\Path\\To\\blockme.exe" << std::endl;
 		std::cout << "或者： "<< argv[0] << " delid <FilterId>" << std::endl;
@@ -110,9 +181,10 @@ int main(int argc, char* argv[]) {
 	std::string op = argv[1];
 	std::wstring exePath;
 	{
-		int size = MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, NULL, 0);
+		UINT codePage = GetACP();
+		int size = MultiByteToWideChar(codePage, 0, argv[2], -1, NULL, 0);
 		exePath.resize(size - 1);
-		MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, &exePath[0], size);
+		MultiByteToWideChar(codePage, 0, argv[2], -1, &exePath[0], size);
 	}
 
 	HANDLE engineHandle = nullptr;
@@ -122,7 +194,7 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	
+	EnsureWfpSublayerExists(mysublayer);
 
 	if (op == "add") {
 		FWPM_FILTER_CONDITION0 cond[2] = {};
@@ -159,7 +231,7 @@ int main(int argc, char* argv[]) {
 		filter.action.type = FWP_ACTION_BLOCK;
 		filter.filterCondition = cond;
 		filter.numFilterConditions = 2;
-		filter.subLayerKey = FWPM_SUBLAYER_UNIVERSAL;
+		filter.subLayerKey = mysublayer;
 		filter.weight.type = FWP_EMPTY;
 		filter.flags = FWPM_FILTER_FLAG_PERSISTENT; // 持久化
 		filter.providerKey = nullptr;
@@ -196,7 +268,7 @@ int main(int argc, char* argv[]) {
 		while (FwpmFilterEnum0(engineHandle, enumHandle, 64, &filters, &numReturned) == ERROR_SUCCESS && numReturned > 0) {
 			for (UINT32 i = 0; i < numReturned; ++i) {
 				FWPM_FILTER0* filter = filters[i];
-				if (filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V4 && filter->numFilterConditions >= 1) {
+				if (filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V4 && filter->numFilterConditions >= 1 && filter->subLayerKey == mysublayer) {
 					for (UINT32 j = 0; j < filter->numFilterConditions; ++j) {
 						if (filter->filterCondition[j].fieldKey == FWPM_CONDITION_ALE_APP_ID) {
 							const FWP_BYTE_BLOB* blob = filter->filterCondition[j].conditionValue.byteBlob;
