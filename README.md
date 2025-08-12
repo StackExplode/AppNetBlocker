@@ -1,5 +1,5 @@
 # AppNetBlocker
-A simple C++ program based on Windows Filtering Platform(WFP) to block a Windows APP from accessing network(except 127.0.0.X) with command line.
+A simple C++ program based on Windows Filtering Platform(WFP) to block a Windows APP from accessing network(except 127.0.0.X) with command line but no need to enable Windows Firewall.
 
 Once you add a rule it will persistantly take effect until you manually remove it.
 
