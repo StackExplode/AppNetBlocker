@@ -37,7 +37,11 @@ AppNetBlocker.exe list <filePath>
 
 List all rules related to `filePath`
 
+```
+AppNetBlocker.exe list *
+```
 
+List all rules added by this software
 
 ### 4. Remove rule by Filter ID
 
