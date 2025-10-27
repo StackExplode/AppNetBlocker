@@ -43,6 +43,19 @@ AppNetBlocker.exe list *
 
 List all rules added by this software
 
+#### Wildcard support
+
+The list command supports wildcard patterns with `*` and `?`:
+- `*` matches any sequence of characters (including empty)
+- `?` matches exactly one character
+
+Examples:
+```
+AppNetBlocker.exe list C:\Program Files\*.exe
+AppNetBlocker.exe list C:\test\app?.exe
+AppNetBlocker.exe list C:\*\myapp.exe
+```
+
 ### 4. Remove rule by Filter ID
 
 ```
