@@ -9,7 +9,46 @@
 #pragma comment(lib, "fwpuclnt.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
-const GUID mysublayer = { 0xaa2b6cdd, 0x516f, 0x738b, { 0x1d, 0x5d, 0xe1, 0xf2, 0x34, 0x56, 0x78, 0x93 } }; // Ê¾Àý×Ó²ã GUID
+const GUID mysublayer = { 0xaa2b6cdd, 0x516f, 0x738b, { 0x1d, 0x5d, 0xe1, 0xf2, 0x34, 0x56, 0x78, 0x93 } }; // Ê¾ï¿½ï¿½ï¿½Ó²ï¿½ GUID
+
+// Wildcard matching function supporting * and ?
+// * matches any sequence of characters (including empty)
+// ? matches exactly one character
+bool wildcardMatch(const wchar_t* pattern, const wchar_t* str) {
+	const wchar_t* p = pattern;
+	const wchar_t* s = str;
+	const wchar_t* starBacktrack = nullptr;
+	const wchar_t* strBacktrack = nullptr;
+
+	while (*s) {
+		if (*p == L'?' || towlower(*p) == towlower(*s)) {
+			// Match single character or ?
+			++p;
+			++s;
+		}
+		else if (*p == L'*') {
+			// Found *, save position for backtracking
+			starBacktrack = p++;
+			strBacktrack = s;
+		}
+		else if (starBacktrack) {
+			// Mismatch, backtrack to last *
+			p = starBacktrack + 1;
+			s = ++strBacktrack;
+		}
+		else {
+			// No match
+			return false;
+		}
+	}
+
+	// Skip trailing * in pattern
+	while (*p == L'*') {
+		++p;
+	}
+
+	return *p == L'\0';
+}
 
 bool isExePathMatch(const FWP_BYTE_BLOB* blob, const std::wstring& exePath) {
 	if (!blob || blob->size % sizeof(wchar_t) != 0) return false;
@@ -24,7 +63,7 @@ bool ByteBlobEqual(const FWP_BYTE_BLOB* a, const FWP_BYTE_BLOB* b) {
 	return (memcmp(a->data, b->data, a->size) == 0);
 }
 
-// °Ñ wstring ×ªÎª utf8 string£¬±ãÓÚ cout
+// ï¿½ï¿½ wstring ×ªÎª utf8 stringï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ cout
 std::string ws2s_old(const std::wstring& ws) {
 	std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
 	return conv.to_bytes(ws);
@@ -32,33 +71,33 @@ std::string ws2s_old(const std::wstring& ws) {
 
 std::string ws2s(const std::wstring& input)
 {
-	// »ñÈ¡µ±Ç°ÏµÍ³µÄANSI´úÂëÒ³
+	// ï¿½ï¿½È¡ï¿½ï¿½Ç°ÏµÍ³ï¿½ï¿½ANSIï¿½ï¿½ï¿½ï¿½Ò³
 	UINT codepage = GetACP();
-	// ¼ÆËãÄ¿±ê×Ö·û´®ËùÐè×Ö½ÚÊý
+	// ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½
 	int bytes = WideCharToMultiByte(codepage, 0, input.c_str(), -1, nullptr, 0, nullptr, nullptr);
 	if (bytes <= 1) return std::string();
-	// ·ÖÅäÄ¿±ê×Ö·û´®¿Õ¼ä
-	std::string result(bytes - 1, '\0'); // -1È¥³ý½áÎ²\0
+	// ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½Õ¼ï¿½
+	std::string result(bytes - 1, '\0'); // -1È¥ï¿½ï¿½ï¿½ï¿½Î²\0
 	WideCharToMultiByte(codepage, 0, input.c_str(), -1, &result[0], bytes, nullptr, nullptr);
 	return result;
 }
 
-// °Ñ FWP_BYTE_BLOB ÀïµÄ¿í×Ö·ûÂ·¾¶×ªÎª string
+// ï¿½ï¿½ FWP_BYTE_BLOB ï¿½ï¿½Ä¿ï¿½ï¿½Ö·ï¿½Â·ï¿½ï¿½×ªÎª string
 std::string AppIdBlobToString(const FWP_BYTE_BLOB* blob) {
 	if (!blob || blob->size % sizeof(wchar_t) != 0) return "";
 	std::wstring ws(reinterpret_cast<const wchar_t*>(blob->data), blob->size / sizeof(wchar_t));
 	return ws2s(ws);
 }
 
-// ¼ì²éWFP×Ó²ãÊÇ·ñ´æÔÚ£¬²»´æÔÚÔò´´½¨£¬²ÎÊýÎª×Ó²ãGUID
+// ï¿½ï¿½ï¿½WFPï¿½Ó²ï¿½ï¿½Ç·ï¿½ï¿½ï¿½Ú£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ò´´½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½Ó²ï¿½GUID
 DWORD EnsureWfpSublayerExists(const GUID& subLayerKey)
 {
 	HANDLE engineHandle = nullptr;
 	DWORD result = FwpmEngineOpen0(
-		nullptr,            // ±¾µØ¼ÆËã»ú
-		RPC_C_AUTHN_WINNT,  // Ä¬ÈÏÉí·ÝÑéÖ¤
-		nullptr,            // Ä¬ÈÏÉí·ÝÑéÖ¤
-		nullptr,            // Ä¬ÈÏ±êÖ¾
+		nullptr,            // ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ï¿½
+		RPC_C_AUTHN_WINNT,  // Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤
+		nullptr,            // Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤
+		nullptr,            // Ä¬ï¿½Ï±ï¿½Ö¾
 		&engineHandle
 	);
 	if (result != ERROR_SUCCESS) {
@@ -66,23 +105,23 @@ DWORD EnsureWfpSublayerExists(const GUID& subLayerKey)
 		return result;
 	}
 
-	// ²éÑ¯×Ó²ãÊÇ·ñÒÑ´æÔÚ
+	// ï¿½ï¿½Ñ¯ï¿½Ó²ï¿½ï¿½Ç·ï¿½ï¿½Ñ´ï¿½ï¿½ï¿½
 	FWPM_SUBLAYER0* sublayer = nullptr;
 	result = FwpmSubLayerGetByKey0(engineHandle, &subLayerKey, &sublayer);
 	if (result == ERROR_SUCCESS) {
-		// ÒÑ´æÔÚ
+		// ï¿½Ñ´ï¿½ï¿½ï¿½
 		if (sublayer) FwpmFreeMemory0((void**)&sublayer);
 		FwpmEngineClose0(engineHandle);
 		return ERROR_SUCCESS;
 	}
 	else if (result != FWP_E_SUBLAYER_NOT_FOUND) {
-		// ÆäËû´íÎó
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 		std::cerr << "FwpmSubLayerGetByKey0 failed: " << result << std::endl;
 		FwpmEngineClose0(engineHandle);
 		return result;
 	}
 
-	// ²»´æÔÚÔò´´½¨
+	// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ò´´½ï¿½
 	FWPM_SUBLAYER0 newSublayer = { 0 };
 	newSublayer.subLayerKey = subLayerKey;
 	newSublayer.displayData.name = (wchar_t*)L"Jennings AppNetBlock Sublayer";
@@ -106,14 +145,13 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 		return;
 	}
 
-	bool wildcard = false;
-	if (exePath == L"*") {
-		wildcard = true;
-	}
+	// Check if pattern contains wildcards
+	bool hasWildcard = (exePath.find(L'*') != std::wstring::npos || exePath.find(L'?') != std::wstring::npos);
+	bool listAll = (exePath == L"*");
 
 
 	FWP_BYTE_BLOB* appId = nullptr;
-	if (!wildcard)
+	if (!hasWildcard)
 	{
 		result = FwpmGetAppIdFromFileName0(exePath.c_str(), &appId);
 		if (result != ERROR_SUCCESS) {
@@ -127,7 +165,7 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 	result = FwpmFilterCreateEnumHandle0(engineHandle, nullptr, &enumHandle);
 	if (result != ERROR_SUCCESS) {
 		std::cout << "FwpmFilterCreateEnumHandle0 failed: " << result << std::endl;
-		if (!wildcard)
+		if (!hasWildcard)
 			FwpmFreeMemory0((void**)&appId);
 		FwpmEngineClose0(engineHandle);
 		return;
@@ -138,34 +176,53 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 	while (FwpmFilterEnum0(engineHandle, enumHandle, 64, &filters, &numReturned) == ERROR_SUCCESS && numReturned > 0) {
 		for (UINT32 i = 0; i < numReturned; ++i) {
 			FWPM_FILTER0* filter = filters[i];
-			if (filter->subLayerKey != mysublayer) continue; // Ö»´¦ÀíÍ¨ÓÃ×Ó²ãµÄ¹æÔò
+			if (filter->subLayerKey != mysublayer) continue; // Ö»ï¿½ï¿½ï¿½ï¿½Í¨ï¿½ï¿½ï¿½Ó²ï¿½Ä¹ï¿½ï¿½ï¿½
 			for (UINT32 j = 0; j < filter->numFilterConditions; ++j) {
 				const FWPM_FILTER_CONDITION0& cond = filter->filterCondition[j];
-				if (cond.fieldKey == FWPM_CONDITION_ALE_APP_ID && cond.conditionValue.byteBlob &&
-					(wildcard || 
-					(cond.conditionValue.byteBlob->size == appId->size &&
-					memcmp(cond.conditionValue.byteBlob->data, appId->data, appId->size) == 0))) {
+				if (cond.fieldKey == FWPM_CONDITION_ALE_APP_ID && cond.conditionValue.byteBlob) {
+					bool matched = false;
 					
-					std::cout << "Rule #" << (++matchCount) << ":\n";
-					std::cout << "  FilterId: " << filter->filterId << "\n";
-					std::cout << "  Name: " << ws2s(filter->displayData.name ? filter->displayData.name : L"(none)") << "\n";
-					std::cout << "  Layer: " << ws2s(filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V4 ? L"AUTH_CONNECT_V4" :
-						filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V6 ? L"AUTH_CONNECT_V6" :
-						L"other") << "\n";
-					std::cout << "  AppId: " << AppIdBlobToString(cond.conditionValue.byteBlob) << "\n";
-					std::cout << " Description: " << (ws2s(filter->displayData.description ? filter->displayData.description : L"(none)")) << "\n";
-					std::cout << "--------------------------------------\n";
-					break;
+					if (listAll) {
+						// Match all rules
+						matched = true;
+					}
+					else if (hasWildcard) {
+						// Wildcard pattern matching
+						if (cond.conditionValue.byteBlob->size % sizeof(wchar_t) == 0) {
+							std::wstring blobStr((wchar_t*)cond.conditionValue.byteBlob->data, 
+								cond.conditionValue.byteBlob->size / sizeof(wchar_t));
+							matched = wildcardMatch(exePath.c_str(), blobStr.c_str());
+						}
+					}
+					else {
+						// Exact match
+						matched = (cond.conditionValue.byteBlob->size == appId->size &&
+							memcmp(cond.conditionValue.byteBlob->data, appId->data, appId->size) == 0);
+					}
+					
+					if (matched) {
+						std::cout << "Rule #" << (++matchCount) << ":\n";
+						std::cout << "  FilterId: " << filter->filterId << "\n";
+						std::cout << "  Name: " << ws2s(filter->displayData.name ? filter->displayData.name : L"(none)") << "\n";
+						std::cout << "  Layer: " << ws2s(filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V4 ? L"AUTH_CONNECT_V4" :
+							filter->layerKey == FWPM_LAYER_ALE_AUTH_CONNECT_V6 ? L"AUTH_CONNECT_V6" :
+							L"other") << "\n";
+						std::cout << "  AppId: " << AppIdBlobToString(cond.conditionValue.byteBlob) << "\n";
+						std::cout << " Description: " << (ws2s(filter->displayData.description ? filter->displayData.description : L"(none)")) << "\n";
+						std::cout << "--------------------------------------\n";
+						break;
+					}
 				}
 			}
 		}
 		FwpmFreeMemory0((void**)&filters);
 	}
 	if (matchCount == 0) {
-		std::cout << "Ã»ÓÐÕÒµ½ÈçÏÂÆ¥ÅäÂ·¾¶µÄ¹æÔò: " << ws2s(exePath) << std::endl;
+		std::cout << "Ã»ï¿½ï¿½ï¿½Òµï¿½ï¿½ï¿½ï¿½ï¿½Æ¥ï¿½ï¿½Â·ï¿½ï¿½ï¿½Ä¹ï¿½ï¿½ï¿½: " << ws2s(exePath) << std::endl;
 	}
 	FwpmFilterDestroyEnumHandle0(engineHandle, enumHandle);
-	FwpmFreeMemory0((void**)&appId);
+	if (!hasWildcard)
+		FwpmFreeMemory0((void**)&appId);
 	FwpmEngineClose0(engineHandle);
 }
 
@@ -174,8 +231,8 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 int main(int argc, char* argv[]) {
 	//std::setlocale(LC_ALL, ".UTF-8");
 	if (argc < 3) {
-		std::cout << "ÓÃ·¨: " << argv[0] << " list|add|del C:\\Path\\To\\blockme.exe" << std::endl;
-		std::cout << "»òÕß£º "<< argv[0] << " delid <FilterId>" << std::endl;
+		std::cout << "ï¿½Ã·ï¿½: " << argv[0] << " list|add|del C:\\Path\\To\\blockme.exe" << std::endl;
+		std::cout << "ï¿½ï¿½ï¿½ß£ï¿½ "<< argv[0] << " delid <FilterId>" << std::endl;
 		return 1;
 	}
 	std::string op = argv[1];
@@ -226,14 +283,14 @@ int main(int argc, char* argv[]) {
 		filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
 		filter.displayData.name = (wchar_t*)L"Block exe internet";
 		wchar_t buffer[1024];
-		swprintf_s(buffer, L"×èÖ¹ %s ·ÃÎÊ»¥ÁªÍø£¨±£Áô»Ø»·£©", exePath.c_str());
+		swprintf_s(buffer, L"ï¿½ï¿½Ö¹ %s ï¿½ï¿½ï¿½Ê»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø»ï¿½ï¿½ï¿½", exePath.c_str());
 		filter.displayData.description = (wchar_t*)buffer;
 		filter.action.type = FWP_ACTION_BLOCK;
 		filter.filterCondition = cond;
 		filter.numFilterConditions = 2;
 		filter.subLayerKey = mysublayer;
 		filter.weight.type = FWP_EMPTY;
-		filter.flags = FWPM_FILTER_FLAG_PERSISTENT; // ³Ö¾Ã»¯
+		filter.flags = FWPM_FILTER_FLAG_PERSISTENT; // ï¿½Ö¾Ã»ï¿½
 		filter.providerKey = nullptr;
 
 		UINT64 filterId = 0;
@@ -242,7 +299,7 @@ int main(int argc, char* argv[]) {
 			std::cout << "FwpmFilterAdd0 failed: 0x" << std::setfill('0') << std::setw(8) << std::hex << std::uppercase << result << std::endl;
 		}
 		else {
-			std::cout << "ÒÑÌí¼Ó¹æÔò£¬×èÖ¹ " << exePath.c_str() << " ·ÃÎÊ»¥ÁªÍø£¨±£Áô»Ø»·£©\n";
+			std::cout << "ï¿½ï¿½ï¿½ï¿½ï¿½Ó¹ï¿½ï¿½ï¿½ï¿½ï¿½Ö¹ " << exePath.c_str() << " ï¿½ï¿½ï¿½Ê»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø»ï¿½ï¿½ï¿½\n";
 		}
 		FwpmFreeMemory0((void**)&appId);
 	}
@@ -285,7 +342,7 @@ int main(int argc, char* argv[]) {
 		for (auto id : idsToDelete) {
 			FwpmFilterDeleteById0(engineHandle, id);
 		}
-		std::cout << "ÒÑÉ¾³ý " << idsToDelete.size() << " ÌõÆ¥Åä¹æÔò¡£\n";
+		std::cout << "ï¿½ï¿½É¾ï¿½ï¿½ " << idsToDelete.size() << " ï¿½ï¿½Æ¥ï¿½ï¿½ï¿½ï¿½ï¿½\n";
 		FwpmFreeMemory0((void**)&appId);
 		FwpmFilterDestroyEnumHandle0(engineHandle, enumHandle);
 	}
@@ -301,11 +358,11 @@ int main(int argc, char* argv[]) {
 			std::cout << "FwpmFilterDeleteById0 failed: " << result << std::endl;
 		}
 		else {
-			std::cout << "ÒÑÉ¾³ý FilterId: " << filterId << std::endl;
+			std::cout << "ï¿½ï¿½É¾ï¿½ï¿½ FilterId: " << filterId << std::endl;
 		}
 	}
 	else {
-		std::cout << "Î´Öª²Ù×÷£º" << op << std::endl;
+		std::cout << "Î´Öªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½" << op << std::endl;
 	}
 	
 	FwpmEngineClose0(engineHandle);
