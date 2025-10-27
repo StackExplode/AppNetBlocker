@@ -6,6 +6,7 @@
 #include <sstream>
 #include <codecvt>
 #include <iomanip>
+#include <cwctype>
 #pragma comment(lib, "fwpuclnt.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -146,8 +147,8 @@ void PrintAllRulesForExe(const std::wstring& exePath) {
 	}
 
 	// Check if pattern contains wildcards
-	bool hasWildcard = (exePath.find(L'*') != std::wstring::npos || exePath.find(L'?') != std::wstring::npos);
 	bool listAll = (exePath == L"*");
+	bool hasWildcard = !listAll && (exePath.find(L'*') != std::wstring::npos || exePath.find(L'?') != std::wstring::npos);
 
 
 	FWP_BYTE_BLOB* appId = nullptr;
